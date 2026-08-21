@@ -1,0 +1,64 @@
+{
+  "name": "litemark",
+  "version": "1.0.0",
+  "private": true,
+  "description": "轻量级 Markdown 阅读器 / 编辑器，带语法检查与自动修复",
+  "author": "LiteMark",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.json",
+    "dist": "electron-vite build && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.litemark.md",
+    "productName": "LiteMark",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    },
+    "fileAssociations": [
+      {
+        "ext": "md",
+        "name": "Markdown 文档",
+        "role": "Viewer"
+      },
+      {
+        "ext": "markdown",
+        "name": "Markdown 文档",
+        "role": "Viewer"
+      }
+    ]
+  },
+  "dependencies": {
+    "chokidar": "^5.0.0"
+  },
+  "devDependencies": {
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language-data": "^6.5.2",
+    "@codemirror/lint": "^6.9.7",
+    "@types/markdown-it": "^14.2.0",
+    "@types/node": "^26.2.0",
+    "codemirror": "^6.0.2",
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "highlight.js": "^11.12.0",
+    "katex": "^0.18.4",
+    "markdown-it": "^15.0.0",
+    "typescript": "^7.0.2"
+  }
+}

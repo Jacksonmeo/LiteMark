@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file: https: http:; font-src 'self' data:; media-src 'self' data: file:"
+    />
+    <title>LiteMark</title>
+  </head>
+  <body data-mode="empty">
+    <header id="topbar">
+      <div class="tb-group">
+        <button id="btn-open" title="打开文件 (Ctrl+O)">打开</button>
+        <button id="btn-recents" title="最近打开">最近</button>
+      </div>
+      <div class="tb-group">
+        <span id="doc-name"></span>
+        <button id="btn-mode" title="切换阅读 / 编辑">编辑 F4</button>
+      </div>
+    </header>
+    <div id="recents-menu" class="hidden"></div>
+
+    <main id="reader" class="md-body hidden"></main>
+
+    <section id="workspace" class="hidden">
+      <div id="editor-pane"><div id="editor-host"></div></div>
+      <div id="divider"></div>
+      <div id="preview-pane"><article id="preview" class="md-body"></article></div>
+    </section>
+
+    <footer id="problems" class="hidden">
+      <div id="problems-head">
+        <span id="problems-summary">没有问题</span>
+        <span class="spacer"></span>
+        <button id="btn-fixall" class="hidden">一键修复</button>
+        <button id="btn-panel-toggle" title="收起 / 展开">▾</button>
+      </div>
+      <ul id="problems-list"></ul>
+    </footer>
+
+    <div id="welcome" class="hidden">
+      <h1>LiteMark</h1>
+      <p class="sub">轻量 Markdown 阅读器 · 编辑器 · 语法检查</p>
+      <p class="hint">按 <kbd>Ctrl+O</kbd> 打开文件，或直接把 .md 文件拖进窗口</p>
+      <ul id="welcome-recents"></ul>
+    </div>
+
+    <div id="drop-hint" class="hidden">松开以打开 .md 文件</div>
+    <div id="modal-overlay" class="hidden"><div id="modal-card"></div></div>
+    <div id="toast" class="hidden"></div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
