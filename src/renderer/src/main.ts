@@ -2,6 +2,7 @@ import './styles/style.css'
 import 'katex/dist/katex.min.css'
 import 'highlight.js/styles/github.css'
 import {
+  applyEditorSettings,
   applyFixes,
   focusEditor,
   getDocText,
@@ -13,6 +14,16 @@ import {
 } from './editor'
 import { renderMarkdown } from './md'
 import { initPanel, updatePanel } from './panel'
+import {
+  applyFontSizes,
+  applyTheme,
+  getSettings,
+  isDarkTheme,
+  onSettingsChange,
+  resetSettings,
+  updateSetting,
+  type ThemeMode
+} from './settings'
 import { closeModal, isModalOpen, showModal, toast } from './ui'
 import type { MdDiag } from './lint/types'
 
@@ -243,7 +254,7 @@ function syncRatio(from: HTMLElement, to: HTMLElement): void {
 function bindScrollSync(): void {
   const ed = getEditorScrollDom()
   ed.addEventListener('scroll', () => {
-    if (syncing) return
+    if (syncing || !getSettings().syncScroll) return
     syncing = true
     syncRatio(ed, previewPane)
     setTimeout(() => {
@@ -251,7 +262,7 @@ function bindScrollSync(): void {
     }, 60)
   })
   previewPane.addEventListener('scroll', () => {
-    if (syncing) return
+    if (syncing || !getSettings().syncScroll) return
     syncing = true
     syncRatio(previewPane, ed)
     setTimeout(() => {
@@ -331,6 +342,7 @@ async function toggleRecentsMenu(): Promise<void> {
 function bindTopbar(): void {
   el('btn-open').addEventListener('click', () => void openViaDialog())
   el('btn-recents').addEventListener('click', () => void toggleRecentsMenu())
+  el('btn-settings').addEventListener('click', () => openSettingsModal())
   btnMode.addEventListener('click', () => {
     if (state.mode === 'read') setMode('edit')
     else if (state.mode === 'edit') setMode('read')
@@ -375,7 +387,58 @@ function bindKeys(): void {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
       e.preventDefault()
       void openViaDialog()
+      return
     }
+    if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+      e.preventDefault()
+      resetHoverFontSize()
+    }
+  })
+}
+
+type ZoomPane = 'preview' | 'editor'
+
+function pickPane(target: EventTarget | null): ZoomPane | null {
+  const t = target as HTMLElement | null
+  if (!t || !(t instanceof Element)) return null
+  if (t.closest('#editor-host')) return 'editor'
+  if (t.closest('.md-body')) return 'preview'
+  return null
+}
+
+function bindZoom(): void {
+  window.addEventListener(
+    'wheel',
+    (e) => {
+      if (!e.ctrlKey) return
+      e.preventDefault()
+      const pane = pickPane(e.target)
+      if (!pane) return
+      const delta = e.deltaY < 0 ? 1 : -1
+      if (pane === 'editor') {
+        updateSetting('editorFontSize', getSettings().editorFontSize + delta)
+      } else {
+        updateSetting('previewFontSize', getSettings().previewFontSize + delta)
+      }
+    },
+    { passive: false }
+  )
+}
+
+function resetHoverFontSize(): void {
+  if (lastMouse.x < 0) return
+  const t = document.elementFromPoint(lastMouse.x, lastMouse.y)
+  const pane = pickPane(t)
+  if (pane === 'editor') updateSetting('editorFontSize', 14)
+  else if (pane === 'preview') updateSetting('previewFontSize', 16)
+}
+
+const lastMouse = { x: -1, y: -1 }
+
+function bindMouseTrack(): void {
+  window.addEventListener('mousemove', (e) => {
+    lastMouse.x = e.clientX
+    lastMouse.y = e.clientY
   })
 }
 
@@ -470,17 +533,81 @@ async function handleExternalChange(): Promise<void> {
   )
 }
 
+function openSettingsModal(): void {
+  const s = getSettings()
+  const themeBtn = (v: ThemeMode, label: string): string =>
+    `<button data-v="${v}" class="${s.theme === v ? 'active' : ''}">${label}</button>`
+  const html = `
+    <div class="set-row"><span class="set-label">外观主题</span>
+      <div class="seg" id="set-theme">${themeBtn('light', '明亮')}${themeBtn('dark', '暗黑')}${themeBtn('system', '跟随系统')}</div>
+    </div>
+    <div class="set-row"><span class="set-label">预览字号</span><input type="number" id="set-pfs" min="12" max="28" step="1" value="${s.previewFontSize}"><span class="unit">px（Ctrl+滚轮可调）</span></div>
+    <div class="set-row"><span class="set-label">编辑器字号</span><input type="number" id="set-efs" min="10" max="24" step="1" value="${s.editorFontSize}"><span class="unit">px（Ctrl+滚轮可调）</span></div>
+    <label class="set-row set-check"><input type="checkbox" id="set-sync" ${s.syncScroll ? 'checked' : ''}><span>分屏同步滚动</span></label>
+    <label class="set-row set-check"><input type="checkbox" id="set-wrap" ${s.wordWrap ? 'checked' : ''}><span>编辑器自动换行</span></label>
+    <label class="set-row set-check"><input type="checkbox" id="set-ln" ${s.lineNumbers ? 'checked' : ''}><span>显示行号</span></label>
+    <button id="set-reset" class="link-btn">恢复默认</button>`
+
+  showModal('设置', html, [{ label: '关闭', onClick: closeModal }])
+
+  const themeSeg = el('set-theme')
+  themeSeg.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('button[data-v]')
+    if (!btn) return
+    updateSetting('theme', (btn as HTMLElement).dataset.v as ThemeMode)
+    for (const b of Array.from(themeSeg.children)) b.classList.toggle('active', b === btn)
+  })
+
+  const bindNumber = (id: string, key: 'previewFontSize' | 'editorFontSize'): void => {
+    const input = el<HTMLInputElement>(id)
+    input.addEventListener('change', () => {
+      const v = Number(input.value)
+      if (!Number.isFinite(v)) return
+      updateSetting(key, v)
+      input.value = String(getSettings()[key])
+    })
+  }
+  bindNumber('set-pfs', 'previewFontSize')
+  bindNumber('set-efs', 'editorFontSize')
+
+  const bindCheck = (id: string, key: 'syncScroll' | 'wordWrap' | 'lineNumbers'): void => {
+    el<HTMLInputElement>(id).addEventListener('change', (e) => {
+      updateSetting(key, (e.target as HTMLInputElement).checked)
+    })
+  }
+  bindCheck('set-sync', 'syncScroll')
+  bindCheck('set-wrap', 'wordWrap')
+  bindCheck('set-ln', 'lineNumbers')
+
+  el('set-reset').addEventListener('click', () => {
+    resetSettings()
+    closeModal()
+    toast('已恢复默认设置')
+  })
+}
+
 async function boot(): Promise<void> {
+  applyTheme()
+  applyFontSizes()
+  const s = getSettings()
   initEditor(editorHost, onEditorChange, () => {
     /* scroll handled in bindScrollSync */
-  })
+  }, { wordWrap: s.wordWrap, lineNumbers: s.lineNumbers, dark: isDarkTheme() })
   bindScrollSync()
   bindDivider()
   bindTopbar()
   bindKeys()
+  bindZoom()
+  bindMouseTrack()
   bindDrop()
   bindLinks()
   bindEvents()
+
+  onSettingsChange((next) => {
+    applyTheme()
+    applyFontSizes()
+    applyEditorSettings({ wordWrap: next.wordWrap, lineNumbers: next.lineNumbers, dark: isDarkTheme() })
+  })
 
   setDiagnosticsListener((diags) => {
     state.diagnostics = diags
