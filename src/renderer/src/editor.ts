@@ -8,7 +8,9 @@ import {
   syntaxHighlighting
 } from '@codemirror/language'
 import { linter } from '@codemirror/lint'
-import { EditorState } from '@codemirror/state'
+import { Compartment, EditorState, type StateEffect } from '@codemirror/state'
+
+import { oneDark } from '@codemirror/theme-one-dark'
 import {
   crosshairCursor,
   drawSelection,
@@ -26,6 +28,31 @@ import type { Fix, MdDiag } from './lint/types'
 let view: EditorView | null = null
 let diagListener: ((d: MdDiag[]) => void) | null = null
 
+const wrapComp = new Compartment()
+const linenoComp = new Compartment()
+const themeComp = new Compartment()
+
+export interface EditorDynSettings {
+  wordWrap: boolean
+  lineNumbers: boolean
+  dark: boolean
+}
+
+export function applyEditorSettings(o: Partial<EditorDynSettings>): void {
+  if (!view) return
+  const effects: StateEffect<unknown>[] = []
+  if (o.wordWrap !== undefined) {
+    effects.push(wrapComp.reconfigure(o.wordWrap ? EditorView.lineWrapping : []))
+  }
+  if (o.lineNumbers !== undefined) {
+    effects.push(linenoComp.reconfigure(o.lineNumbers ? lineNumbers() : []))
+  }
+  if (o.dark !== undefined) {
+    effects.push(themeComp.reconfigure(o.dark ? oneDark : []))
+  }
+  if (effects.length > 0) view.dispatch({ effects })
+}
+
 export function setDiagnosticsListener(cb: ((d: MdDiag[]) => void) | null): void {
   diagListener = cb
 }
@@ -33,7 +60,8 @@ export function setDiagnosticsListener(cb: ((d: MdDiag[]) => void) | null): void
 export function initEditor(
   parent: HTMLElement,
   onChange: () => void,
-  onScroll: () => void
+  onScroll: () => void,
+  dyn: EditorDynSettings
 ): void {
   const lintExt = linter((v) => {
     const diags = runLint(v.state.doc.toString())
@@ -71,7 +99,9 @@ export function initEditor(
         history(),
         indentOnInput(),
         bracketMatching(),
-        EditorView.lineWrapping,
+        wrapComp.of(dyn.wordWrap ? EditorView.lineWrapping : []),
+        linenoComp.of(dyn.lineNumbers ? lineNumbers() : []),
+        themeComp.of(dyn.dark ? oneDark : []),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
         markdown({ base: markdownLanguage, codeLanguages: languages }),

@@ -5,6 +5,15 @@ export interface ModalButton {
 }
 
 let modalOpenFlag = false
+let overlayWired = false
+
+function wireOverlayDismiss(): void {
+  if (overlayWired) return
+  overlayWired = true
+  el('modal-overlay').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeModal()
+  })
+}
 
 function el<T extends HTMLElement>(id: string): T {
   const e = document.getElementById(id)
@@ -38,6 +47,7 @@ export function showModal(title: string, bodyHtml: string, buttons: ModalButton[
   card.appendChild(footer)
 
   overlay.classList.remove('hidden')
+  wireOverlayDismiss()
   modalOpenFlag = true
 }
 
