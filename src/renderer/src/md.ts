@@ -103,6 +103,14 @@ const mdi: InstanceType<typeof MarkdownIt> = new MarkdownIt({
   }
 })
 
+mdi.core.ruler.push('inject-src-lines', (state) => {
+  for (const tok of state.tokens) {
+    if (tok.map && (tok.nesting === 1 || tok.type === 'fence' || tok.type === 'code_block' || tok.type === 'hr')) {
+      tok.attrSet('data-sl', String(tok.map[0]))
+    }
+  }
+})
+
 export interface TocEntry {
   level: number
   text: string
