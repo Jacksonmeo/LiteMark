@@ -160,3 +160,21 @@ export function getEditorScrollDom(): HTMLElement {
   if (!view) throw new Error('editor not initialized')
   return view.scrollDOM
 }
+
+export function firstVisibleEditorLine(): number {
+  if (!view) return 1
+  const rect = view.scrollDOM.getBoundingClientRect()
+  const pos = view.posAtCoords({
+    x: rect.left + Math.min(rect.width / 2, 300),
+    y: rect.top + 8
+  })
+  if (pos == null) return 1
+  return view.state.doc.lineAt(pos).number
+}
+
+export function scrollToDocLine(line: number): void {
+  if (!view) return
+  const total = view.state.doc.lines
+  const l = view.state.doc.line(Math.min(Math.max(1, line), total))
+  view.scrollDOM.scrollTop = view.lineBlockAt(l.from).top - 16
+}

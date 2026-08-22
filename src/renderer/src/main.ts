@@ -4,11 +4,13 @@ import 'highlight.js/styles/github.css'
 import {
   applyEditorSettings,
   applyFixes,
+  firstVisibleEditorLine,
   focusEditor,
   getDocText,
   getEditorScrollDom,
   gotoOffset,
   initEditor,
+  scrollToDocLine,
   setDocText,
   setDiagnosticsListener
 } from './editor'
@@ -27,6 +29,7 @@ import {
   type ThemeMode
 } from './settings'
 import { bindTocSpy, buildToc } from './toc'
+import { collectMarks, lineToTop, scrollToLine, topToLine, type SrcMark } from './syncmap'
 import { closeModal, isModalOpen, showModal, toast } from './ui'
 import type { MdDiag } from './lint/types'
 
@@ -67,6 +70,9 @@ const state = {
 }
 
 let disposeSpy: (() => void) | null = null
+let readerMarks: SrcMark[] = []
+let previewMarks: SrcMark[] = []
+let pendingRestoreLine: number | null = null
 
 function fileName(p: string | null): string {
   if (!p) return ''
@@ -86,6 +92,13 @@ function markDirty(d: boolean): void {
 }
 
 function setMode(mode: Mode): void {
+  pendingRestoreLine = null
+  if (state.mode === 'edit' && mode === 'read' && getEditorScrollDom().scrollTop > 2) {
+    pendingRestoreLine = firstVisibleEditorLine()
+  } else if (state.mode === 'read' && mode === 'edit' && readerEl.scrollTop > 2) {
+    const sl = topToLine(readerEl, readerMarks, readerEl.scrollTop + 16)
+    pendingRestoreLine = sl === null ? null : Math.round(sl) + 1
+  }
   state.mode = mode
   document.body.dataset.mode = mode
   readingEl.classList.toggle('hidden', mode !== 'read')
@@ -96,8 +109,17 @@ function setMode(mode: Mode): void {
   hideRecentsMenu()
   updateReadingChrome()
   if (mode === 'edit') {
-    requestAnimationFrame(() => focusEditor())
+    if (pendingRestoreLine !== null) restorePreviewOnNextRender = true
+    requestAnimationFrame(() => {
+      if (pendingRestoreLine !== null) scrollToDocLine(pendingRestoreLine)
+      focusEditor()
+      if (pendingRestoreLine !== null) scrollToDocLine(pendingRestoreLine)
+    })
     refreshPreviewSoon()
+  } else if (mode === 'read' && pendingRestoreLine !== null) {
+    requestAnimationFrame(() => {
+      scrollToLine(readerEl, readerMarks, pendingRestoreLine! - 1)
+    })
   }
 }
 
@@ -137,6 +159,7 @@ async function loadContentIntoApp(
 function rebuildToc(): void {
   const entries = assignHeadingIds(readerEl)
   state.tocCount = entries.length
+  readerMarks = collectMarks(readerEl)
   if (disposeSpy) disposeSpy()
   disposeSpy = null
   buildToc(readerEl, entries, () => {})
@@ -254,6 +277,7 @@ async function saveFileAs(): Promise<void> {
 }
 
 let previewSeq = 0
+let restorePreviewOnNextRender = false
 
 async function renderPreviewPreservingScroll(): Promise<void> {
   if (state.mode !== 'edit') return
@@ -263,6 +287,12 @@ async function renderPreviewPreservingScroll(): Promise<void> {
   const ok = await renderMarkdown(previewEl, getDocText(), state.path)
   if (!ok || seq !== previewSeq) return
   assignHeadingIds(previewEl)
+  previewMarks = collectMarks(previewEl)
+  if (restorePreviewOnNextRender && pendingRestoreLine !== null) {
+    restorePreviewOnNextRender = false
+    scrollToLine(previewPane, previewMarks, pendingRestoreLine - 1)
+    return
+  }
   const nfd = previewPane.scrollHeight - previewPane.clientHeight
   previewPane.scrollTop = nfd > 0 ? ratio * nfd : 0
 }
@@ -329,7 +359,10 @@ function bindScrollSync(): void {
   ed.addEventListener('scroll', () => {
     if (syncing || !getSettings().syncScroll) return
     syncing = true
-    syncRatio(ed, previewPane)
+    const sl = firstVisibleEditorLine() - 1
+    if (!scrollToLine(previewPane, previewMarks, sl)) {
+      syncRatio(ed, previewPane)
+    }
     setTimeout(() => {
       syncing = false
     }, 60)
@@ -337,7 +370,9 @@ function bindScrollSync(): void {
   previewPane.addEventListener('scroll', () => {
     if (syncing || !getSettings().syncScroll) return
     syncing = true
-    syncRatio(previewPane, ed)
+    const sl = topToLine(previewPane, previewMarks, previewPane.scrollTop + 16)
+    if (sl !== null) scrollToDocLine(Math.round(sl) + 1)
+    else syncRatio(previewPane, ed)
     setTimeout(() => {
       syncing = false
     }, 60)
