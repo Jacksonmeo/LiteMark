@@ -17,12 +17,31 @@
       </div>
       <div class="tb-group">
         <span id="doc-name"></span>
+        <button id="btn-toc" title="显示 / 隐藏目录">目录</button>
         <button id="btn-mode" title="切换阅读 / 编辑">编辑 F4</button>
       </div>
     </header>
     <div id="recents-menu" class="hidden"></div>
 
-    <main id="reader" class="md-body hidden"></main>
+    <div id="reading" class="hidden">
+      <nav id="toc"></nav>
+      <main id="reader" class="md-body"></main>
+      <aside id="info-bar">
+        <div class="info-card">
+          <div class="card-title">文档信息</div>
+          <div class="kv"><span>字数</span><b id="if-words">-</b></div>
+          <div class="kv"><span>预计阅读</span><b id="if-readtime">-</b></div>
+          <div class="kv"><span>图片 / 公式</span><b id="if-media">-</b></div>
+          <div class="kv"><span>修改时间</span><b id="if-mtime">-</b></div>
+        </div>
+        <div class="info-card">
+          <div class="card-title">语法检查</div>
+          <div id="if-lint" class="lint-line">-</div>
+          <button id="if-gofix" class="mini-btn">F4 进入编辑修复</button>
+        </div>
+      </aside>
+    </div>
+    <button id="btn-top" class="hidden" title="回到顶部">&#8593;</button>
 
     <section id="workspace" class="hidden">
       <div id="editor-pane"><div id="editor-host"></div></div>

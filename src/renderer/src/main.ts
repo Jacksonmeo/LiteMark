@@ -12,18 +12,21 @@ import {
   setDocText,
   setDiagnosticsListener
 } from './editor'
-import { renderMarkdown } from './md'
+import { assignHeadingIds, renderMarkdown } from './md'
 import { initPanel, updatePanel } from './panel'
 import {
   applyFontSizes,
+  applyPaper,
   applyTheme,
   getSettings,
   isDarkTheme,
   onSettingsChange,
   resetSettings,
   updateSetting,
+  type PaperMode,
   type ThemeMode
 } from './settings'
+import { bindTocSpy, buildToc } from './toc'
 import { closeModal, isModalOpen, showModal, toast } from './ui'
 import type { MdDiag } from './lint/types'
 
@@ -36,6 +39,7 @@ function el<T extends HTMLElement>(id: string): T {
 }
 
 const readerEl = el<HTMLElement>('reader')
+const readingEl = el<HTMLElement>('reading')
 const workspaceEl = el<HTMLElement>('workspace')
 const editorHost = el<HTMLElement>('editor-host')
 const previewPane = el<HTMLElement>('preview-pane')
@@ -46,6 +50,7 @@ const topbarEl = el<HTMLElement>('topbar')
 const recentsMenuEl = el<HTMLElement>('recents-menu')
 const docNameEl = el<HTMLElement>('doc-name')
 const btnMode = el<HTMLButtonElement>('btn-mode')
+const btnTop = el<HTMLButtonElement>('btn-top')
 const dropHintEl = el<HTMLElement>('drop-hint')
 
 const state = {
@@ -56,8 +61,12 @@ const state = {
   dirty: false,
   suppressExternalUntil: 0,
   diagnostics: [] as MdDiag[],
-  previewTimer: null as ReturnType<typeof setTimeout> | null
+  previewTimer: null as ReturnType<typeof setTimeout> | null,
+  mtimeMs: null as number | null,
+  tocCount: 0
 }
+
+let disposeSpy: (() => void) | null = null
 
 function fileName(p: string | null): string {
   if (!p) return ''
@@ -79,19 +88,35 @@ function markDirty(d: boolean): void {
 function setMode(mode: Mode): void {
   state.mode = mode
   document.body.dataset.mode = mode
-  readerEl.classList.toggle('hidden', mode !== 'read')
+  readingEl.classList.toggle('hidden', mode !== 'read')
   workspaceEl.classList.toggle('hidden', mode !== 'edit')
   problemsEl.classList.toggle('hidden', mode !== 'edit')
   welcomeEl.classList.toggle('hidden', mode !== 'empty')
   btnMode.textContent = mode === 'edit' ? '阅读 Esc' : '编辑 F4'
   hideRecentsMenu()
+  updateReadingChrome()
   if (mode === 'edit') {
     requestAnimationFrame(() => focusEditor())
     refreshPreviewSoon()
   }
 }
 
-async function loadContentIntoApp(rawContent: string, path: string): Promise<void> {
+function updateReadingChrome(): void {
+  const read = state.mode === 'read'
+  const s = getSettings()
+  const wide = window.innerWidth > 1080
+  const showToc = read && s.showToc && wide && state.tocCount > 0
+  el('toc').classList.toggle('hidden', !showToc)
+  el('btn-toc').classList.toggle('active', showToc)
+  const showInfo = read && s.showInfoBar && wide && !!state.path
+  el('info-bar').classList.toggle('hidden', !showInfo)
+}
+
+async function loadContentIntoApp(
+  rawContent: string,
+  path: string,
+  mtimeMs?: number
+): Promise<void> {
   state.crlf = rawContent.includes('\r\n')
   const content = state.crlf ? rawContent.replace(/\r\n/g, '\n') : rawContent
   setDocText(content)
@@ -101,9 +126,56 @@ async function loadContentIntoApp(rawContent: string, path: string): Promise<voi
   window.api.addRecent(path)
   window.api.watchFile(path)
   await renderMarkdown(readerEl, content, path)
+  rebuildToc()
+  refreshDocInfo(mtimeMs)
   readerEl.scrollTop = 0
+  btnTop.classList.add('hidden')
   refreshTitle()
   setMode('read')
+}
+
+function rebuildToc(): void {
+  const entries = assignHeadingIds(readerEl)
+  state.tocCount = entries.length
+  if (disposeSpy) disposeSpy()
+  disposeSpy = null
+  buildToc(readerEl, entries, () => {})
+  disposeSpy = bindTocSpy(readerEl, entries)
+  updateReadingChrome()
+}
+
+function countWords(text: string): number {
+  const cjk = (text.match(/[\u3400-\u4dbf\u4e00-\u9fff]/g) ?? []).length
+  const words = (
+    text.replace(/[\u3400-\u4dbf\u4e00-\u9fff]/g, ' ').match(/[A-Za-z0-9_'-]+/g) ?? []
+  ).length
+  return cjk + words
+}
+
+function fmtTime(ms: number): string {
+  const d = new Date(ms)
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+function refreshDocInfo(mtimeMs?: number): void {
+  if (mtimeMs !== undefined) state.mtimeMs = mtimeMs
+  const text = getDocText()
+  const words = countWords(text)
+  const minutes = Math.max(1, Math.round(words / 400))
+  el('if-words').textContent = words.toLocaleString()
+  el('if-readtime').textContent = `约 ${minutes} 分钟`
+  el('if-media').textContent = `${readerEl.querySelectorAll('img').length} / ${readerEl.querySelectorAll('.katex').length}`
+  el('if-mtime').textContent = state.mtimeMs === null ? '-' : fmtTime(state.mtimeMs)
+}
+
+function refreshLintCard(): void {
+  const errors = state.diagnostics.filter((d) => d.severity === 'error').length
+  const warnings = state.diagnostics.length - errors
+  el('if-lint').innerHTML =
+    state.diagnostics.length === 0
+      ? '<span class="ok-text">没有问题</span>'
+      : `<span class="dot err"></span>${errors} 个错误<span class="dot warn"></span>${warnings} 个警告`
 }
 
 function confirmDiscard(): Promise<boolean> {
@@ -139,7 +211,7 @@ async function openPath(p: string): Promise<void> {
   }
   try {
     const r = await window.api.readFile(p)
-    await loadContentIntoApp(r.content, p)
+    await loadContentIntoApp(r.content, p, r.mtimeMs)
   } catch (err) {
     toast(`无法打开文件：${String(err)}`)
   }
@@ -190,6 +262,7 @@ async function renderPreviewPreservingScroll(): Promise<void> {
   const seq = ++previewSeq
   const ok = await renderMarkdown(previewEl, getDocText(), state.path)
   if (!ok || seq !== previewSeq) return
+  assignHeadingIds(previewEl)
   const nfd = previewPane.scrollHeight - previewPane.clientHeight
   previewPane.scrollTop = nfd > 0 ? ratio * nfd : 0
 }
@@ -527,36 +600,46 @@ async function handleExternalChange(): Promise<void> {
         onClick: () => {
           closeModal()
           if (state.path) void loadContentIntoApp(raw, state.path)
-        }
-      }
+        }      }
     ]
   )
 }
 
 function openSettingsModal(): void {
   const s = getSettings()
-  const themeBtn = (v: ThemeMode, label: string): string =>
-    `<button data-v="${v}" class="${s.theme === v ? 'active' : ''}">${label}</button>`
+  const segBtn = (group: 'theme' | 'paper', v: string, label: string, cur: string): string =>
+    `<button data-g="${group}" data-v="${v}" class="${cur === v ? 'active' : ''}">${label}</button>`
   const html = `
     <div class="set-row"><span class="set-label">外观主题</span>
-      <div class="seg" id="set-theme">${themeBtn('light', '明亮')}${themeBtn('dark', '暗黑')}${themeBtn('system', '跟随系统')}</div>
+      <div class="seg" id="set-theme">${segBtn('theme', 'light', '明亮', s.theme)}${segBtn('theme', 'dark', '暗黑', s.theme)}${segBtn('theme', 'system', '跟随系统', s.theme)}</div>
+    </div>
+    <div class="set-row"><span class="set-label">阅读底色</span>
+      <div class="seg" id="set-paper">${segBtn('paper', 'white', '经典白', s.paper)}${segBtn('paper', 'sepia', '书页米黄', s.paper)}${segBtn('paper', 'green', '护眼绿', s.paper)}${segBtn('paper', 'gray', '晨雾灰', s.paper)}</div>
     </div>
     <div class="set-row"><span class="set-label">预览字号</span><input type="number" id="set-pfs" min="12" max="28" step="1" value="${s.previewFontSize}"><span class="unit">px（Ctrl+滚轮可调）</span></div>
     <div class="set-row"><span class="set-label">编辑器字号</span><input type="number" id="set-efs" min="10" max="24" step="1" value="${s.editorFontSize}"><span class="unit">px（Ctrl+滚轮可调）</span></div>
     <label class="set-row set-check"><input type="checkbox" id="set-sync" ${s.syncScroll ? 'checked' : ''}><span>分屏同步滚动</span></label>
     <label class="set-row set-check"><input type="checkbox" id="set-wrap" ${s.wordWrap ? 'checked' : ''}><span>编辑器自动换行</span></label>
     <label class="set-row set-check"><input type="checkbox" id="set-ln" ${s.lineNumbers ? 'checked' : ''}><span>显示行号</span></label>
+    <label class="set-row set-check"><input type="checkbox" id="set-toc" ${s.showToc ? 'checked' : ''}><span>阅读时显示目录</span></label>
+    <label class="set-row set-check"><input type="checkbox" id="set-info" ${s.showInfoBar ? 'checked' : ''}><span>阅读时显示信息栏</span></label>
     <button id="set-reset" class="link-btn">恢复默认</button>`
 
   showModal('设置', html, [{ label: '关闭', onClick: closeModal }])
 
-  const themeSeg = el('set-theme')
-  themeSeg.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest('button[data-v]')
-    if (!btn) return
-    updateSetting('theme', (btn as HTMLElement).dataset.v as ThemeMode)
-    for (const b of Array.from(themeSeg.children)) b.classList.toggle('active', b === btn)
-  })
+  for (const segId of ['set-theme', 'set-paper'] as const) {
+    const seg = el(segId)
+    seg.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('button[data-v]')
+      if (!btn) return
+      if (btn.dataset.g === 'theme') {
+        updateSetting('theme', btn.dataset.v as ThemeMode)
+      } else {
+        updateSetting('paper', btn.dataset.v as PaperMode)
+      }
+      for (const b of Array.from(seg.children)) (b as HTMLElement).classList.toggle('active', b === btn)
+    })
+  }
 
   const bindNumber = (id: string, key: 'previewFontSize' | 'editorFontSize'): void => {
     const input = el<HTMLInputElement>(id)
@@ -570,7 +653,10 @@ function openSettingsModal(): void {
   bindNumber('set-pfs', 'previewFontSize')
   bindNumber('set-efs', 'editorFontSize')
 
-  const bindCheck = (id: string, key: 'syncScroll' | 'wordWrap' | 'lineNumbers'): void => {
+  const bindCheck = (
+    id: string,
+    key: 'syncScroll' | 'wordWrap' | 'lineNumbers' | 'showToc' | 'showInfoBar'
+  ): void => {
     el<HTMLInputElement>(id).addEventListener('change', (e) => {
       updateSetting(key, (e.target as HTMLInputElement).checked)
     })
@@ -578,6 +664,8 @@ function openSettingsModal(): void {
   bindCheck('set-sync', 'syncScroll')
   bindCheck('set-wrap', 'wordWrap')
   bindCheck('set-ln', 'lineNumbers')
+  bindCheck('set-toc', 'showToc')
+  bindCheck('set-info', 'showInfoBar')
 
   el('set-reset').addEventListener('click', () => {
     resetSettings()
@@ -586,8 +674,31 @@ function openSettingsModal(): void {
   })
 }
 
+function bindReading(): void {
+  el('btn-toc').addEventListener('click', () => {
+    updateSetting('showToc', !getSettings().showToc)
+  })
+  btnTop.addEventListener('click', () => {
+    readerEl.scrollTo({ top: 0, behavior: 'smooth' })
+  })
+  readerEl.addEventListener(
+    'scroll',
+    () => {
+      if (state.mode === 'read') {
+        btnTop.classList.toggle('hidden', readerEl.scrollTop <= 600)
+      }
+    },
+    { passive: true }
+  )
+  el('if-gofix').addEventListener('click', () => {
+    if (state.mode !== 'edit') setMode('edit')
+  })
+  window.addEventListener('resize', () => updateReadingChrome())
+}
+
 async function boot(): Promise<void> {
   applyTheme()
+  applyPaper()
   applyFontSizes()
   const s = getSettings()
   initEditor(editorHost, onEditorChange, () => {
@@ -596,6 +707,7 @@ async function boot(): Promise<void> {
   bindScrollSync()
   bindDivider()
   bindTopbar()
+  bindReading()
   bindKeys()
   bindZoom()
   bindMouseTrack()
@@ -605,13 +717,16 @@ async function boot(): Promise<void> {
 
   onSettingsChange((next) => {
     applyTheme()
+    applyPaper()
     applyFontSizes()
     applyEditorSettings({ wordWrap: next.wordWrap, lineNumbers: next.lineNumbers, dark: isDarkTheme() })
+    updateReadingChrome()
   })
 
   setDiagnosticsListener((diags) => {
     state.diagnostics = diags
     updatePanel(diags)
+    refreshLintCard()
   })
   initPanel({
     jumpTo: (pos) => {

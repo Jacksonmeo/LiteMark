@@ -1,21 +1,28 @@
 export type ThemeMode = 'system' | 'light' | 'dark'
+export type PaperMode = 'white' | 'sepia' | 'green' | 'gray'
 
 export interface Settings {
   theme: ThemeMode
+  paper: PaperMode
   previewFontSize: number
   editorFontSize: number
   syncScroll: boolean
   wordWrap: boolean
   lineNumbers: boolean
+  showToc: boolean
+  showInfoBar: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
+  paper: 'white',
   previewFontSize: 16,
   editorFontSize: 14,
   syncScroll: true,
   wordWrap: true,
-  lineNumbers: true
+  lineNumbers: true,
+  showToc: true,
+  showInfoBar: true
 }
 
 const KEY = 'litemark.settings'
@@ -27,11 +34,16 @@ function clamp(n: number, min: number, max: number): number {
 function sanitize(raw: Partial<Settings>): Settings {
   const s: Settings = { ...DEFAULT_SETTINGS, ...raw }
   if (s.theme !== 'system' && s.theme !== 'light' && s.theme !== 'dark') s.theme = 'system'
+  if (s.paper !== 'white' && s.paper !== 'sepia' && s.paper !== 'green' && s.paper !== 'gray') {
+    s.paper = 'white'
+  }
   s.previewFontSize = clamp(Number(s.previewFontSize) || DEFAULT_SETTINGS.previewFontSize, 12, 28)
   s.editorFontSize = clamp(Number(s.editorFontSize) || DEFAULT_SETTINGS.editorFontSize, 10, 24)
   s.syncScroll = Boolean(s.syncScroll)
   s.wordWrap = Boolean(s.wordWrap)
   s.lineNumbers = Boolean(s.lineNumbers)
+  s.showToc = raw.showToc === undefined ? true : Boolean(raw.showToc)
+  s.showInfoBar = raw.showInfoBar === undefined ? true : Boolean(raw.showInfoBar)
   return s
 }
 
@@ -92,6 +104,10 @@ export function isDarkTheme(): boolean {
 
 export function applyTheme(): void {
   document.documentElement.dataset.theme = isDarkTheme() ? 'dark' : 'light'
+}
+
+export function applyPaper(): void {
+  document.documentElement.dataset.paper = current.paper
 }
 
 export function applyFontSizes(): void {

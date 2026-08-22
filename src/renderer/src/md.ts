@@ -103,6 +103,36 @@ const mdi: InstanceType<typeof MarkdownIt> = new MarkdownIt({
   }
 })
 
+export interface TocEntry {
+  level: number
+  text: string
+  id: string
+}
+
+function slugify(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^\p{L}\p{N}-]/gu, '')
+}
+
+export function assignHeadingIds(el: HTMLElement): TocEntry[] {
+  const used = new Map<string, number>()
+  const out: TocEntry[] = []
+  for (const h of Array.from(el.querySelectorAll('h1,h2,h3,h4,h5,h6'))) {
+    const text = (h.textContent ?? '').trim()
+    let base = slugify(text)
+    if (!base) base = 'section'
+    const n = used.get(base) ?? 0
+    used.set(base, n + 1)
+    const id = n === 0 ? base : `${base}-${n}`
+    h.id = id
+    out.push({ level: Number(h.tagName[1]), text, id })
+  }
+  return out
+}
+
 let renderSeq = 0
 
 export async function renderMarkdown(
