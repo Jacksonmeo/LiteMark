@@ -674,7 +674,34 @@ function openSettingsModal(): void {
   })
 }
 
+function bindTocResize(): void {
+  const d = el<HTMLElement>('toc-divider')
+  const toc = el('toc')
+  const saved = Number(localStorage.getItem('litemark.tocw'))
+  if (saved >= 170 && saved <= 420) toc.style.flexBasis = `${saved}px`
+  d.addEventListener('pointerdown', (e) => {
+    e.preventDefault()
+    d.setPointerCapture(e.pointerId)
+    const move = (ev: PointerEvent): void => {
+      const w = Math.min(420, Math.max(170, ev.clientX))
+      toc.style.flexBasis = `${w}px`
+    }
+    const up = (ev: PointerEvent): void => {
+      d.releasePointerCapture(ev.pointerId)
+      localStorage.setItem(
+        'litemark.tocw',
+        String(Math.round(toc.getBoundingClientRect().width))
+      )
+      d.removeEventListener('pointermove', move)
+      d.removeEventListener('pointerup', up)
+    }
+    d.addEventListener('pointermove', move)
+    d.addEventListener('pointerup', up)
+  })
+}
+
 function bindReading(): void {
+  bindTocResize()
   el('btn-toc').addEventListener('click', () => {
     updateSetting('showToc', !getSettings().showToc)
   })
