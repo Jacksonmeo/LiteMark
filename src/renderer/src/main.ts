@@ -14,8 +14,10 @@ import {
   setDocText,
   setDiagnosticsListener
 } from './editor'
+import { markdownToTex } from './export-tex'
 import { assignHeadingIds, renderMarkdown } from './md'
 import { initPanel, updatePanel } from './panel'
+import { closeSearch, initSearch, isSearchOpen, openSearch, searchStep } from './search'
 import {
   applyFontSizes,
   applyPaper,
@@ -51,6 +53,7 @@ const problemsEl = el<HTMLElement>('problems')
 const welcomeEl = el<HTMLElement>('welcome')
 const topbarEl = el<HTMLElement>('topbar')
 const recentsMenuEl = el<HTMLElement>('recents-menu')
+const exportMenuEl = el<HTMLElement>('export-menu')
 const docNameEl = el<HTMLElement>('doc-name')
 const btnMode = el<HTMLButtonElement>('btn-mode')
 const btnTop = el<HTMLButtonElement>('btn-top')
@@ -92,6 +95,7 @@ function markDirty(d: boolean): void {
 }
 
 function setMode(mode: Mode): void {
+  if (state.mode !== mode && isSearchOpen()) closeSearch()
   pendingRestoreLine = null
   if (state.mode === 'edit' && mode === 'read' && getEditorScrollDom().scrollTop > 2) {
     pendingRestoreLine = firstVisibleEditorLine()
@@ -139,6 +143,7 @@ async function loadContentIntoApp(
   path: string,
   mtimeMs?: number
 ): Promise<void> {
+  closeSearch()
   state.crlf = rawContent.includes('\r\n')
   const content = state.crlf ? rawContent.replace(/\r\n/g, '\n') : rawContent
   setDocText(content)
@@ -274,6 +279,58 @@ async function saveFileAs(): Promise<void> {
   state.path = p
   await writeToFile(p)
   refreshTitle()
+}
+
+function exportBaseName(): string {
+  return fileName(state.path).replace(/\.(md|markdown)$/i, '') || 'document'
+}
+
+async function refreshReaderForExport(): Promise<void> {
+  if (state.previewTimer) {
+    clearTimeout(state.previewTimer)
+    state.previewTimer = null
+  }
+  closeSearch()
+  const ok = await renderMarkdown(readerEl, getDocText(), state.path)
+  if (!ok) throw new Error('文档在导出前发生了变化，请重试')
+  rebuildToc()
+  refreshDocInfo()
+}
+
+async function exportPdf(): Promise<void> {
+  if (!state.path) {
+    toast('请先打开 Markdown 文件')
+    return
+  }
+  hideExportMenu()
+  try {
+    await refreshReaderForExport()
+    const data = await window.api.exportPdf()
+    if (!data) throw new Error('未能生成 PDF 数据')
+    const target = await window.api.saveDialog(`${exportBaseName()}.pdf`, 'pdf')
+    if (!target) return
+    await window.api.writeFileBinary(target, data)
+    toast('PDF 导出完成')
+  } catch (err) {
+    toast(`PDF 导出失败：${String(err)}`)
+  }
+}
+
+async function exportLatex(): Promise<void> {
+  if (!state.path) {
+    toast('请先打开 Markdown 文件')
+    return
+  }
+  hideExportMenu()
+  try {
+    await refreshReaderForExport()
+    const target = await window.api.saveDialog(`${exportBaseName()}.tex`, 'latex')
+    if (!target) return
+    await window.api.writeFile(target, markdownToTex(getDocText()))
+    toast('LaTeX 导出完成；请用 XeLaTeX 编译。复杂嵌套表格、脚注和行内 HTML 暂不支持')
+  } catch (err) {
+    toast(`LaTeX 导出失败：${String(err)}`)
+  }
 }
 
 let previewSeq = 0
@@ -438,18 +495,46 @@ function hideRecentsMenu(): void {
   recentsMenuEl.classList.add('hidden')
 }
 
+function hideExportMenu(): void {
+  exportMenuEl.classList.add('hidden')
+}
+
 async function toggleRecentsMenu(): Promise<void> {
   if (!recentsMenuEl.classList.contains('hidden')) {
     hideRecentsMenu()
     return
   }
+  hideExportMenu()
   await renderRecentsInto(recentsMenuEl)
   recentsMenuEl.classList.remove('hidden')
+}
+
+function toggleExportMenu(): void {
+  if (!state.path) {
+    toast('请先打开 Markdown 文件')
+    return
+  }
+  hideRecentsMenu()
+  if (!exportMenuEl.classList.contains('hidden')) {
+    hideExportMenu()
+    return
+  }
+  const rect = el('btn-export').getBoundingClientRect()
+  exportMenuEl.style.left = `${Math.round(rect.left)}px`
+  exportMenuEl.style.right = 'auto'
+  exportMenuEl.style.top = `${Math.round(rect.bottom + 4)}px`
+  exportMenuEl.classList.remove('hidden')
 }
 
 function bindTopbar(): void {
   el('btn-open').addEventListener('click', () => void openViaDialog())
   el('btn-recents').addEventListener('click', () => void toggleRecentsMenu())
+  el('btn-export').addEventListener('click', toggleExportMenu)
+  exportMenuEl.addEventListener('click', (e) => {
+    const button = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-x]')
+    if (button?.dataset.x === 'pdf') void exportPdf()
+    else if (button?.dataset.x === 'latex') void exportLatex()
+  })
   el('btn-settings').addEventListener('click', () => openSettingsModal())
   btnMode.addEventListener('click', () => {
     if (state.mode === 'read') setMode('edit')
@@ -467,11 +552,28 @@ function bindTopbar(): void {
     ) {
       hideRecentsMenu()
     }
+    if (
+      !exportMenuEl.classList.contains('hidden') &&
+      !exportMenuEl.contains(t) &&
+      !el('btn-export').contains(t)
+    ) {
+      hideExportMenu()
+    }
   })
 }
 
 function bindKeys(): void {
   window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+      e.preventDefault()
+      if (!isModalOpen() && state.mode !== 'empty') openSearch()
+      return
+    }
+    if (e.key === 'F3' && isSearchOpen()) {
+      e.preventDefault()
+      searchStep(e.shiftKey ? -1 : 1)
+      return
+    }
     if (e.key === 'F4') {
       e.preventDefault()
       if (state.mode === 'read') setMode('edit')
@@ -481,6 +583,10 @@ function bindKeys(): void {
     if (e.key === 'Escape') {
       if (isModalOpen()) {
         closeModal()
+        return
+      }
+      if (isSearchOpen()) {
+        closeSearch()
         return
       }
       if (state.mode === 'edit') setMode('read')
@@ -770,6 +876,7 @@ async function boot(): Promise<void> {
   bindDivider()
   bindTopbar()
   bindReading()
+  initSearch(() => readerEl)
   bindKeys()
   bindZoom()
   bindMouseTrack()

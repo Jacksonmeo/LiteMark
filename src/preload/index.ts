@@ -4,9 +4,11 @@ import type { BridgeApi } from '../shared/types'
 const api: BridgeApi = {
   initialFile: () => ipcRenderer.invoke('app:initial-file'),
   openDialog: () => ipcRenderer.invoke('dialog:open'),
-  saveDialog: (defaultName) => ipcRenderer.invoke('dialog:save-as', defaultName),
+  saveDialog: (defaultName, format) => ipcRenderer.invoke('dialog:save-as', defaultName, format),
   readFile: (p) => ipcRenderer.invoke('file:read', p),
   writeFile: (p, c) => ipcRenderer.invoke('file:write', { path: p, content: c }),
+  writeFileBinary: (p, d) => ipcRenderer.invoke('file:write-binary', { path: p, data: d }),
+  exportPdf: () => ipcRenderer.invoke('export:pdf'),
   watchFile: (p) => ipcRenderer.send('file:watch', p),
   listRecents: () => ipcRenderer.invoke('recents:list'),
   addRecent: (p) => ipcRenderer.send('recents:add', p),
