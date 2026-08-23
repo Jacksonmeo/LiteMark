@@ -11,12 +11,16 @@ export interface RecentsResult {
   items: string[]
 }
 
+export type SaveFormat = 'markdown' | 'pdf' | 'latex'
+
 export interface BridgeApi {
   initialFile(): Promise<string | null>
   openDialog(): Promise<string | null>
-  saveDialog(defaultName: string): Promise<string | null>
+  saveDialog(defaultName: string, format?: SaveFormat): Promise<string | null>
   readFile(path: string): Promise<ReadResult>
   writeFile(path: string, content: string): Promise<SaveResult>
+  writeFileBinary(path: string, data: Uint8Array): Promise<SaveResult>
+  exportPdf(): Promise<Uint8Array | null>
   watchFile(path: string): void
   listRecents(): Promise<RecentsResult>
   addRecent(path: string): void

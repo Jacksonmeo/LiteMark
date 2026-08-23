@@ -89,7 +89,6 @@ export function initEditor(
     state: EditorState.create({
       doc: '',
       extensions: [
-        lineNumbers(),
         highlightActiveLine(),
         highlightSpecialChars(),
         drawSelection(),
@@ -177,4 +176,17 @@ export function scrollToDocLine(line: number): void {
   const total = view.state.doc.lines
   const l = view.state.doc.line(Math.min(Math.max(1, line), total))
   view.scrollDOM.scrollTop = view.lineBlockAt(l.from).top - 16
+}
+
+export function selectDocRange(from: number, to: number): void {
+  if (!view) return
+  view.dispatch({
+    selection: { anchor: from, head: to },
+    effects: EditorView.scrollIntoView(from, { y: 'center' })
+  })
+}
+
+export function clearDocSelection(): void {
+  if (!view) return
+  view.dispatch({ selection: { anchor: view.state.selection.main.head } })
 }

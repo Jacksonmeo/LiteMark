@@ -5,6 +5,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { watch, type FSWatcher } from 'chokidar'
 import { Recents } from './recents'
+import type { SaveFormat } from '../shared/types'
 
 let win: BrowserWindow | null = null
 let watcher: FSWatcher | null = null
@@ -98,11 +99,16 @@ function registerIpc(): void {
     return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
   })
 
-  ipcMain.handle('dialog:save-as', async (_e, defaultName: string) => {
+  ipcMain.handle('dialog:save-as', async (_e, defaultName: string, format: SaveFormat = 'markdown') => {
     if (!win) return null
+    const filters = {
+      markdown: [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
+      pdf: [{ name: 'PDF', extensions: ['pdf'] }],
+      latex: [{ name: 'LaTeX', extensions: ['tex'] }]
+    }
     const r = await dialog.showSaveDialog(win, {
       defaultPath: defaultName || 'untitled.md',
-      filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }]
+      filters: filters[format]
     })
     return r.canceled || !r.filePath ? null : r.filePath
   })
@@ -117,6 +123,23 @@ function registerIpc(): void {
     await fsp.writeFile(payload.path, payload.content, 'utf-8')
     const stat = await fsp.stat(payload.path)
     return { mtimeMs: stat.mtimeMs }
+  })
+
+  ipcMain.handle('file:write-binary', async (_e, payload: { path: string; data: Uint8Array }) => {
+    suppressUntil = Date.now() + 1200
+    await fsp.writeFile(payload.path, Buffer.from(payload.data))
+    const stat = await fsp.stat(payload.path)
+    return { mtimeMs: stat.mtimeMs }
+  })
+
+  ipcMain.handle('export:pdf', async () => {
+    if (!win) return null
+    return win.webContents.printToPDF({
+      landscape: false,
+      printBackground: true,
+      pageSize: 'A4',
+      margins: { top: 0.4, bottom: 0.4, left: 0.4, right: 0.4 }
+    })
   })
 
   ipcMain.handle('recents:list', () => ({ items: recents.list() }))

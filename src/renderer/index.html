@@ -13,6 +13,7 @@
       <div class="tb-group">
         <button id="btn-open" title="打开文件 (Ctrl+O)">打开</button>
         <button id="btn-recents" title="最近打开">最近</button>
+        <button id="btn-export" title="导出 PDF / LaTeX">导出</button>
         <button id="btn-settings" title="设置">设置</button>
       </div>
       <div class="tb-group">
@@ -22,6 +23,10 @@
       </div>
     </header>
     <div id="recents-menu" class="hidden"></div>
+    <div id="export-menu" class="hidden">
+      <button data-x="pdf">导出 PDF</button>
+      <button data-x="latex">导出 LaTeX</button>
+    </div>
 
     <div id="reading" class="hidden">
       <nav id="toc"></nav>
@@ -69,6 +74,15 @@
 
     <div id="drop-hint" class="hidden">松开以打开 .md 文件</div>
     <div id="modal-overlay" class="hidden"><div id="modal-card"></div></div>
+    <div id="search-bar" class="hidden">
+      <input id="search-input" placeholder="查找…" spellcheck="false" />
+      <span id="search-count"></span>
+      <button id="btn-search-prev" title="上一个 (Shift+Enter)">‹</button>
+      <button id="btn-search-next" title="下一个 (Enter)">›</button>
+      <button id="btn-search-case" title="区分大小写">Aa</button>
+      <button id="btn-search-close" title="关闭 (Esc)">✕</button>
+    </div>
+
     <div id="toast" class="hidden"></div>
 
     <script type="module" src="./src/main.ts"></script>

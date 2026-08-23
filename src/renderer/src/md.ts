@@ -1,6 +1,7 @@
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js/lib/core'
 import renderMathInElement from 'katex/contrib/auto-render'
+import { renderMermaidBlocks } from './mermaid'
 
 import bash from 'highlight.js/lib/languages/bash'
 import c from 'highlight.js/lib/languages/c'
@@ -103,6 +104,8 @@ const mdi: InstanceType<typeof MarkdownIt> = new MarkdownIt({
   }
 })
 
+export { mdi }
+
 mdi.core.ruler.push('inject-src-lines', (state) => {
   for (const tok of state.tokens) {
     if (tok.map && (tok.nesting === 1 || tok.type === 'fence' || tok.type === 'code_block' || tok.type === 'hr')) {
@@ -171,5 +174,7 @@ export async function renderMarkdown(
     throwOnError: false,
     ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code']
   })
+  if (seq !== renderSeq) return false
+  await renderMermaidBlocks(el)
   return seq === renderSeq
 }
